@@ -20,6 +20,7 @@
         <module>example-java</module>
         <module>example-project-reactor</module>
         <module>solid</module>
+        <module>script</module>
     </modules>
 
 </project>
