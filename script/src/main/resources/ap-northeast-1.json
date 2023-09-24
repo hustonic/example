@@ -1,0 +1,5 @@
+{
+  "cluster": "FargateCluster",
+  "securityGroupId": "sg-04e73965d43988679",
+  "region": "ap-northeast-1"
+}
