@@ -60,10 +60,10 @@ public class StartVpnServerApplication {
     CompletableFuture<DescribeNetworkInterfacesResponse> startServerFuture =
         startServer(ecs, ec2, cluster);
 
-    CompletableFuture<CompletableFuture<AuthorizeSecurityGroupIngressResponse>>
-        updateSecurityGroupFuture = updateSecurityGroup(ec2, securityGroupId, webClient);
+    CompletableFuture<AuthorizeSecurityGroupIngressResponse> updateSecurityGroupFuture =
+        updateSecurityGroup(ec2, securityGroupId, webClient);
 
-    CompletableFuture.allOf(startServerFuture, updateSecurityGroupFuture.get()).get();
+    CompletableFuture.allOf(startServerFuture, updateSecurityGroupFuture).get();
   }
 
   private static CompletableFuture<DescribeNetworkInterfacesResponse> startServer(
@@ -109,45 +109,58 @@ public class StartVpnServerApplication {
                         + networkInterfaces.networkInterfaces().get(0).association().publicIp()));
   }
 
-  private static CompletableFuture<CompletableFuture<AuthorizeSecurityGroupIngressResponse>>
-      updateSecurityGroup(Ec2AsyncClient ec2, String securityGroupId, WebClient webClient) {
-    return ec2.describeSecurityGroupRules(
-            builder ->
-                builder.filters(Filter.builder().name("group-id").values(securityGroupId).build()))
+  private static CompletableFuture<AuthorizeSecurityGroupIngressResponse> updateSecurityGroup(
+      Ec2AsyncClient ec2, String securityGroupId, WebClient webClient) {
+    return webClient
+        .get()
+        .uri("https://checkip.amazonaws.com")
+        .exchangeToMono(clientResponse -> clientResponse.bodyToMono(String.class))
+        .toFuture()
         .thenComposeAsync(
-            describeSecurityGroupRulesResponse ->
-                ec2.revokeSecurityGroupIngress(
-                    builder ->
-                        builder
-                            .groupId(securityGroupId)
-                            .securityGroupRuleIds(
-                                describeSecurityGroupRulesResponse.securityGroupRules().stream()
-                                    .filter(securityGroupRule -> !securityGroupRule.isEgress())
-                                    .map(SecurityGroupRule::securityGroupRuleId)
-                                    .toList())))
-        .thenCombineAsync(
-            webClient
-                .get()
-                .uri("https://checkip.amazonaws.com")
-                .exchangeToMono(clientResponse -> clientResponse.bodyToMono(String.class))
-                .toFuture(),
-            (revokeSecurityGroupIngressResponse, ip) ->
-                ec2.authorizeSecurityGroupIngress(
-                    builder ->
-                        builder
-                            .groupId(securityGroupId)
-                            .ipPermissions(
-                                IpPermission.builder()
-                                    .ipProtocol("tcp")
-                                    .fromPort(VPN_PORT)
-                                    .toPort(VPN_PORT)
-                                    .ipRanges(IpRange.builder().cidrIp(ip.trim() + "/32").build())
-                                    .build(),
-                                IpPermission.builder()
-                                    .ipProtocol("udp")
-                                    .fromPort(VPN_PORT)
-                                    .toPort(VPN_PORT)
-                                    .ipRanges(IpRange.builder().cidrIp(ip.trim() + "/32").build())
-                                    .build())));
+            ip ->
+                ec2.describeSecurityGroupRules(
+                        builder ->
+                            builder.filters(
+                                Filter.builder().name("group-id").values(securityGroupId).build()))
+                    .thenComposeAsync(
+                        describeSecurityGroupRulesResponse ->
+                            ec2.revokeSecurityGroupIngress(
+                                builder ->
+                                    builder
+                                        .groupId(securityGroupId)
+                                        .securityGroupRuleIds(
+                                            describeSecurityGroupRulesResponse
+                                                .securityGroupRules()
+                                                .stream()
+                                                .filter(
+                                                    securityGroupRule ->
+                                                        !securityGroupRule.isEgress())
+                                                .map(SecurityGroupRule::securityGroupRuleId)
+                                                .toList())))
+                    .thenComposeAsync(
+                        (revokeSecurityGroupIngressResponse) ->
+                            ec2.authorizeSecurityGroupIngress(
+                                builder ->
+                                    builder
+                                        .groupId(securityGroupId)
+                                        .ipPermissions(
+                                            IpPermission.builder()
+                                                .ipProtocol("tcp")
+                                                .fromPort(VPN_PORT)
+                                                .toPort(VPN_PORT)
+                                                .ipRanges(
+                                                    IpRange.builder()
+                                                        .cidrIp(ip.trim() + "/32")
+                                                        .build())
+                                                .build(),
+                                            IpPermission.builder()
+                                                .ipProtocol("udp")
+                                                .fromPort(VPN_PORT)
+                                                .toPort(VPN_PORT)
+                                                .ipRanges(
+                                                    IpRange.builder()
+                                                        .cidrIp(ip.trim() + "/32")
+                                                        .build())
+                                                .build()))));
   }
 }
